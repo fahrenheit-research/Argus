@@ -167,10 +167,12 @@ async def _gmail_send(args: dict[str, Any]) -> str:
     resp = await _gmail_call("POST", "/messages/send", json_body={"raw": raw})
     if "_error" in resp:
         return f"ERROR: {resp['_error']}\n{resp.get('_remedy') or resp.get('_detail', '')}"
-    return (f"OK: sent to {', '.join(to_list)}"
-            f"{f' (cc {', '.join(cc_list)})' if cc_list else ''}"
-            f"{f' (bcc {', '.join(bcc_list)})' if bcc_list else ''}"
-            f"\nGmail message id: {resp.get('id', '?')}")
+    cc_part  = f" (cc {', '.join(cc_list)})"  if cc_list  else ""
+    bcc_part = f" (bcc {', '.join(bcc_list)})" if bcc_list else ""
+    return (
+        f"OK: sent to {', '.join(to_list)}{cc_part}{bcc_part}"
+        f"\nGmail message id: {resp.get('id', '?')}"
+    )
 
 
 # ── Tool: gmail_create_draft ─────────────────────────────────────────────────
