@@ -454,17 +454,24 @@ class Constellation:
         tool_call_buf: list[dict] = []
         for _round in range(2):
             tool_call_buf.clear()
-            async for evt in provider.stream(messages=messages, model=model,
-                                             tools=tool_specs):
-                etype = type(evt).__name__
-                if etype == "TextEvent" and getattr(evt, "text", None):
-                    out_parts.append(evt.text)
-                elif etype == "ToolCallEvent":
+            async for delta in provider.stream(messages=messages, model=model,
+                                               tools=tool_specs if tool_specs else None):
+                # provider.stream() yields Delta objects (kind: text|tool_call|finish|error)
+                if delta.kind == "text" and delta.text:
+                    out_parts.append(delta.text)
+                elif delta.kind == "tool_call" and delta.tool_call:
+                    tc = delta.tool_call
                     tool_call_buf.append({
-                        "id":   getattr(evt, "id", uuid.uuid4().hex[:8]),
-                        "name": getattr(evt, "name", ""),
-                        "arguments": getattr(evt, "arguments", {}) or {},
+                        "id":        tc.id,
+                        "name":      tc.name,
+                        "arguments": tc.arguments or {},
                     })
+                elif delta.kind == "finish":
+                    self._tokens_used += (delta.tokens_in + delta.tokens_out)
+                elif delta.kind == "error":
+                    import logging as _log
+                    _log.getLogger("argus.swarm").warning("role %s stream error: %s",
+                                                          role.name, delta.error)
             if not tool_call_buf:
                 break
 
@@ -498,7 +505,8 @@ class Constellation:
             out_parts = []   # collect the post-tool-result reply
 
         text = "".join(out_parts).strip()
-        self._tokens_used += _rough_token_count(text + user_prompt + system)
+        # Account for prompt tokens using rough estimate (Delta.finish gives exact counts above)
+        self._tokens_used += _rough_token_count(user_prompt + role.system_prompt)
         return text or "(empty role response)"
 
     # ── Budget ticker (cheap; every 2s) ─────────────────────────────────

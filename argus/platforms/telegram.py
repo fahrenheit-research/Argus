@@ -449,21 +449,17 @@ async def _handle_message(
         full_text = f"{attachment_note}\n\n{user_text}" if user_text.strip() else attachment_note
 
     # ── Auto-swarm detection ──────────────────────────────────────────────
-    # If the prompt contains multiple distinct tasks, immediately fan out to
-    # the Constellation instead of the single-turn agent. No user command
-    # needed — ARGUS detects complexity and swarms automatically.
+    routable = False
+    confidence = 0.0
+    swarm_reason = ""
     try:
         from argus.swarm.auto import should_swarm
         routable, confidence, swarm_reason = should_swarm(full_text)
         if routable:
             log.info("auto-swarm triggered (%.0f%% confidence): %s",
                      confidence * 100, swarm_reason)
-            await _safe_edit(
-                placeholder if 'placeholder' in dir() else None,
-                f"⟨◆⟩  _Constellation activated — {swarm_reason}_",
-                parse_mode=ParseMode.MARKDOWN,
-            ) if False else None  # placeholder not created yet, handled below
-    except Exception:
+    except Exception as e:
+        log.debug("swarm detection failed (falling back to normal turn): %s", e)
         routable = False
 
     # Send the animated thinking placeholder (needed before the reply)
@@ -485,33 +481,54 @@ async def _handle_message(
     if routable:
         try:
             from argus.swarm import Constellation
+            from argus.swarm.events import BudgetTick, RoleStarted, RoleFinished, RoleFailed
             constellation = Constellation(
                 goal=full_text, cfg=cfg,
                 budget_tokens=30_000, timeout_seconds=180,
             )
+            active_roles: list[str] = []
+            last_tick_edit = 0.0
             async for evt in constellation.stream():
-                from argus.swarm.events import BudgetTick, RoleStarted, RoleFinished
-                if isinstance(evt, BudgetTick):
-                    pct = int(evt.spent_tokens / max(1, evt.total_tokens) * 100)
-                    await _safe_edit(
-                        placeholder,
-                        f"⟨◆⟩  _Constellation running — {pct}% budget · "
-                        f"{evt.active_roles} active role(s) · {evt.elapsed_ms // 1000}s_",
-                        parse_mode=ParseMode.MARKDOWN,
-                    )
+                now = time.monotonic() * 1000
+                if isinstance(evt, RoleStarted):
+                    active_roles.append(evt.role)
+                    if now - last_tick_edit >= 1500:
+                        roles_str = ", ".join(active_roles[-3:])
+                        await _safe_edit(
+                            placeholder,
+                            f"⟨◆⟩  _Constellation — {roles_str} working…_",
+                            parse_mode=ParseMode.MARKDOWN,
+                        )
+                        last_tick_edit = now
+                elif isinstance(evt, RoleFinished):
+                    if evt.role in active_roles:
+                        active_roles.remove(evt.role)
+                elif isinstance(evt, RoleFailed):
+                    if evt.role in active_roles:
+                        active_roles.remove(evt.role)
+                elif isinstance(evt, BudgetTick):
+                    if now - last_tick_edit >= 2000:
+                        pct = int(evt.spent_tokens / max(1, evt.total_tokens) * 100)
+                        roles_str = f"{evt.active_roles} role(s)" if evt.active_roles else "synthesizing"
+                        await _safe_edit(
+                            placeholder,
+                            f"⟨◆⟩  _Constellation — {roles_str} · {pct}% budget · {evt.elapsed_ms // 1000}s_",
+                            parse_mode=ParseMode.MARKDOWN,
+                        )
+                        last_tick_edit = now
             result = constellation.result
             if cfg.gateway.telegram.reactions:
                 await _react(update, "✓")
             from argus.render import render_for_telegram
             final_text = render_for_telegram(result.answer)
-            stats = (f"\n\n_⟨◇⟩ Constellation: {result.role_count} roles · "
+            stats = (f"\n\n_⟨◇⟩ {result.role_count} roles · "
                      f"{len(result.confirmed_outputs)} verified · "
                      f"{result.elapsed_ms // 1000}s_")
             await _safe_edit(placeholder, (final_text + stats)[:4090],
                              parse_mode=ParseMode.MARKDOWN)
             return
         except Exception as e:
-            log.error("auto-swarm failed, falling back to normal turn: %s", e)
+            log.error("auto-swarm failed, falling back to normal turn: %s", e, exc_info=True)
             await _safe_edit(placeholder, _initial_think_frame(),
                              parse_mode=ParseMode.MARKDOWN)
 
