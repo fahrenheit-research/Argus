@@ -645,6 +645,9 @@ async def _on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (update.message.text or "").strip()
     if not text:
         return
+    uid = update.effective_user.id if update.effective_user else "?"
+    uname = update.effective_user.username or "?" if update.effective_user else "?"
+    log.info("← @%s (%s): %r", uname, uid, text[:80])
     try:
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
     except TelegramError:
@@ -799,6 +802,25 @@ async def _cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         "⟨◇⟩ *ARGUS online*\n\n"
         "Send any message, photo, voice note, or file — I'll handle it.\n\n"
         "_Built by Fahrenheit Research · f-r.co_",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+async def _cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/ping — instant echo, no agent, no allow-list. Diagnoses connectivity."""
+    import time as _t
+    uid = update.effective_user.id if update.effective_user else "?"
+    uname = update.effective_user.username or "?" if update.effective_user else "?"
+    cfg: _config.Config = context.bot_data.get("cfg") or _config.load()
+    allowed_raw = _config.resolve_secret("TELEGRAM_ALLOWED_USERS", cfg) or ""
+    allowed_ids = parse_allow_list(allowed_raw)
+    on_list = uid in allowed_ids if isinstance(uid, int) else False
+    await update.message.reply_text(
+        f"🏓 *pong*\n\n"
+        f"Your user ID: `{uid}`\n"
+        f"Your username: @{uname}\n"
+        f"On allow-list: {'✓ yes' if on_list else '✗ NO — add with: `uv run argus gateway allow {uid}`'}\n\n"
+        f"_If you are not on the allow-list, all other commands and messages are silently ignored._",
         parse_mode=ParseMode.MARKDOWN,
     )
 
@@ -1146,6 +1168,17 @@ async def _cmd_connect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     log.error("telegram error: %s", context.error, exc_info=context.error)
+    # Reply to the user so they know something went wrong (not just silence)
+    if isinstance(update, Update) and update.effective_message:
+        try:
+            err_type = type(context.error).__name__ if context.error else "Unknown"
+            await update.effective_message.reply_text(
+                f"⚠️ Something went wrong: `{err_type}`\n"
+                f"Check `/debug` for the full log.",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        except Exception:
+            pass
 
 
 # ── Bot-commands menu (the / autocomplete in the Telegram app) ──────────────
@@ -1153,6 +1186,7 @@ async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> 
 
 _BOT_COMMANDS = [
     ("start",        "Welcome panel — show what ARGUS is"),
+    ("ping",         "Instant connectivity check — shows your user ID and allow-list status"),
     ("help",         "How ARGUS works"),
     ("status",       "Session info: provider, model, toolsets, voice"),
     ("report",       "Full status report — ARGUS + AgentBrain + Momento + Wire"),
@@ -1260,8 +1294,9 @@ def build_application(cfg: _config.Config, token: str) -> Application:
     app.bot_data["cfg"]    = cfg
     app.bot_data["convos"] = {}
 
-    # Public
+    # Public (no allow-list — anyone can use these)
     app.add_handler(CommandHandler("start", _cmd_start))
+    app.add_handler(CommandHandler("ping",  _cmd_ping))
 
     # Restricted
     app.add_handler(CommandHandler("help",        _cmd_help,         filters=allow_filter))
@@ -1314,13 +1349,57 @@ def run_long_polling(cfg: _config.Config) -> None:
             "TELEGRAM_BOT_TOKEN not set.\n"
             "Run: argus setup   or   argus gateway setup"
         )
+
+    # ── Configure logging so errors are visible in the VPS log file ──────
+    import logging as _logging
+    from argus import paths as _paths
+    _paths.ensure_dirs()
+    log_file = _paths.LOGS_DIR / "argus-gateway.log"
+
+    # Root logger: INFO to file, WARNING to stderr
+    _logging.basicConfig(
+        level=_logging.INFO,
+        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+        handlers=[
+            _logging.FileHandler(str(log_file), encoding="utf-8"),
+            _logging.StreamHandler(),
+        ],
+    )
+    # Suppress noisy PTB httpx logs
+    _logging.getLogger("httpx").setLevel(_logging.WARNING)
+    _logging.getLogger("httpcore").setLevel(_logging.WARNING)
+    _logging.getLogger("telegram").setLevel(_logging.INFO)
+
     log.info("starting Telegram gateway (long-polling)…")
+    log.info("log file: %s", log_file)
+
+    # Validate token and log bot identity before starting
+    try:
+        import httpx as _httpx
+        r = _httpx.get(f"https://api.telegram.org/bot{token}/getMe", timeout=8)
+        data = r.json()
+        if data.get("ok"):
+            bot = data["result"]
+            log.info("bot identity: @%s (%s, id=%s)",
+                     bot.get("username"), bot.get("first_name"), bot.get("id"))
+        else:
+            log.error("getMe failed: %s", data.get("description", "unknown"))
+    except Exception as e:
+        log.warning("could not verify bot token at startup: %s", e)
+
+    # Log the allow-list so it's visible in the log
+    allowed_raw = _config.resolve_secret("TELEGRAM_ALLOWED_USERS", cfg) or ""
+    from argus.platforms.telegram import parse_allow_list
+    allowed_ids = parse_allow_list(allowed_raw)
+    if allowed_ids:
+        log.info("allow-list: %d user(s): %s", len(allowed_ids),
+                 ", ".join(str(i) for i in sorted(allowed_ids)))
+    else:
+        log.error("TELEGRAM_ALLOWED_USERS is empty — bot will not respond to anyone!")
+        log.error("Fix: uv run argus gateway allow <your-telegram-user-id>")
+
     app = build_application(cfg, token)
 
-    # Graceful shutdown on SIGTERM (systemd / supervisor will send this).
-    # python-telegram-bot installs its own SIGINT/SIGTERM handlers via
-    # stop_signals; we keep those defaults but log so journalctl shows the
-    # drain. PTB drains updates + finishes in-flight handlers before exit.
     import signal as _signal
     app.run_polling(
         drop_pending_updates=True,
