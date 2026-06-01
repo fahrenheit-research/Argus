@@ -1,0 +1,67 @@
+# systemd unit for the ARGUS Telegram gateway.
+#
+# Install:
+#   sudo cp deploy/argus-gateway.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now argus-gateway
+#
+# Tail logs:
+#   journalctl -u argus-gateway -f
+#
+# Status:
+#   systemctl status argus-gateway
+#
+# Restart (graceful — drains in-flight runs first):
+#   sudo systemctl restart argus-gateway
+
+[Unit]
+Description=ARGUS Telegram gateway (sentinel for one user)
+Documentation=https://github.com/fahrenheit-research/argus
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Edit these three for your machine:
+User=argus
+Group=argus
+WorkingDirectory=/opt/argus
+
+# uv-managed venv path — same as macOS install location, repurposed.
+Environment="ARGUS_HOME=/var/lib/argus"
+Environment="HOME=/home/argus"
+Environment="PATH=/home/argus/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="ARGUS_NO_SPLASH=1"
+Environment="ARGUS_NO_CHIME=1"
+
+ExecStart=/home/argus/.local/share/uv/python/cpython-3.13/bin/python -c "from argus.config import load as _load; from argus.platforms.telegram import run_long_polling as _run; _run(_load())"
+
+# Graceful shutdown: 30s for in-flight LLM calls to finish.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+# Resource limits (tune per VPS size; defaults are conservative for a 1 GB box).
+MemoryMax=900M
+CPUQuota=80%
+
+# Hardening — ARGUS only needs to read ~/.argus and write logs.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/argus /tmp
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# Log to journald so `journalctl -u argus-gateway` Just Works.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

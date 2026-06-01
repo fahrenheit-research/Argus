@@ -1,0 +1,133 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ARGUS — .gitignore
+#
+# What goes to git:  Python CLI source code, tests, docs, pyproject.toml,
+#                    bootstrap.sh, README, deploy scripts.
+#
+# What stays local:  the Android app, user state (~/.argus, ~/argus-workspace),
+#                    voice models, caches, build artifacts, IDE config.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Android / React Native app (separate concern from the CLI) ──────────────
+android/
+*.apk
+*.aab
+*.ipa
+
+# ── Mac/desktop UI artifacts (Tauri/Electron etc; .app bundles) ─────────────
+# Keep desktop/assets, desktop/scripts, desktop/wake_word_training (source)
+# Exclude built/output artifacts only.
+desktop/target/
+desktop/node_modules/
+desktop/dist/
+desktop/build/
+*.app/
+*.dmg
+*.pkg
+
+# ── Python build & cache ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+sdist/
+wheels/
+.installed.cfg
+*.manifest
+*.spec
+
+# ── Virtual environments ────────────────────────────────────────────────────
+# Symlink form (".venv 2", ".venv 3" appear when iCloud creates conflict copies)
+.venv
+.venv*
+venv/
+ENV/
+env/
+.python-version
+
+# ── uv ──────────────────────────────────────────────────────────────────────
+# Keep uv.lock in git (reproducible installs), ignore the cache only.
+.uv-cache/
+
+# ── Tests & coverage ────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# ── Type checkers ───────────────────────────────────────────────────────────
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# ── User-level ARGUS state (NEVER commit) ───────────────────────────────────
+# Lives in ~/.argus/ — secrets, learned memory, sessions, voice models
+# (not under the repo, but block anyway in case anyone symlinks them in)
+.argus/
+argus-workspace/
+*.env
+*.env.local
+*.env.*.local
+
+# ── Voice / ML artifacts ────────────────────────────────────────────────────
+*.onnx
+*.pt
+*.bin
+*.gguf
+wake_models/
+models/
+.cache/
+.huggingface/
+
+# ── Logs & temp ─────────────────────────────────────────────────────────────
+*.log
+logs/
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+
+# ── OS junk ─────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ── Editor / IDE ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+.history/
+.cursorignore
+
+# ── Claude / AI assistant working files ─────────────────────────────────────
+.claude/
+CLAUDE.md
+AGENTS.md
+.aider*
+
+# ── Misc ────────────────────────────────────────────────────────────────────
+node_modules/
+package-lock.json
+.npm/
+.yarn/
+.pnp.*

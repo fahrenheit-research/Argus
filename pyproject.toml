@@ -1,0 +1,136 @@
+[project]
+name = "argus"
+version = "0.1.0"
+description = "ARGUS — the watchful agent that grows with you."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "ARGUS" }]
+dependencies = [
+  "typer>=0.12.0",
+  "rich>=13.7.0",
+  "questionary>=2.0.1",
+  "prompt_toolkit>=3.0.43",
+  "pyyaml>=6.0.1",
+  "python-dotenv>=1.0.1",
+  "pyfiglet>=1.0.4",
+  "openai>=2.38.0",
+  "anthropic>=0.105.2",
+  "groq>=1.4.0",
+  "httpx>=0.28.1",
+  "python-telegram-bot[rate-limiter]>=22.7",
+  "tenacity>=9.1.4",
+  "rank-bm25>=0.2.2",
+  "pydantic>=2.13.4",
+  "duckduckgo-search>=8.1.1",
+  "ddgs>=9.14.4",
+]
+
+[project.scripts]
+argus = "argus.cli:app"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+# `pip install argus[voice]` — TTS providers
+voice = [
+  # pyttsx3 = cross-platform offline TTS (uses macOS `say`, Linux espeak, Windows SAPI).
+  # Replaced Supertonic, which had unreliable PyPI distribution.
+  "pyttsx3>=2.97; sys_platform != 'darwin'",
+  "edge-tts>=6.1.0",
+  "soundfile>=0.12.0",
+  "numpy>=1.24",
+  # Pure-Python LAME bindings — lets us produce MP3 without ffmpeg on PATH.
+  # Required so Telegram always gets an .mp3 voice/audio bubble.
+  "lameenc>=1.6.1",
+]
+# `pip install argus[voice-local]` — pure-local stack, no API keys
+voice-local = [
+  # pyttsx3 = cross-platform offline TTS (uses macOS `say`, Linux espeak, Windows SAPI).
+  # Replaced Supertonic, which had unreliable PyPI distribution.
+  "pyttsx3>=2.97; sys_platform != 'darwin'",
+  "soundfile>=0.12.0",
+  "numpy>=1.24",
+  "lameenc>=1.6.1",
+]
+# `pip install argus[voice-wake]` — hands-free `argus listen` mode.
+# Local mic + wake word + STT all local & OSS:
+#   • sounddevice    — cross-platform mic capture
+#   • faster-whisper — local STT (4x faster than openai-whisper)
+#   • openwakeword   — local wake-word detection ("Hey Argus")
+#   • webrtcvad      — voice-activity detection to end-of-utterance
+voice-wake = [
+  # pyttsx3 = cross-platform offline TTS (uses macOS `say`, Linux espeak, Windows SAPI).
+  # Replaced Supertonic, which had unreliable PyPI distribution.
+  "pyttsx3>=2.97; sys_platform != 'darwin'",
+  "soundfile>=0.12.0",
+  "numpy>=1.24",
+  "lameenc>=1.6.1",
+  "sounddevice>=0.4.6",
+  "faster-whisper>=1.0.0",
+  "openwakeword>=0.6.0",
+  "webrtcvad-wheels>=2.0.14",
+]
+# `pip install argus[dashboard]` — real-time TUI cockpit via Textual.
+# Tiny (Textual is pure Python, ~5MB); no native deps.
+dashboard = [
+  "textual>=0.80.0",
+]
+# `pip install argus[scraping-pro]` — adds ScrapeGraphAI for JS-heavy pages.
+# Heavy (pulls playwright + langchain + browsers). The default `scrape_website`
+# tool works without it via httpx + BS4-style cleanup + the user's LLM.
+scraping-pro = [
+  "scrapegraphai>=1.0.0",
+]
+# `pip install argus[office]` — Scribe (docx/pdf) + Ledger (xlsx/csv) tools.
+# Required for the Scribe / Ledger specialist constellation roles to produce
+# real artifacts. Without this extra the tool returns "ERROR: pip install X".
+office = [
+  "python-docx>=1.1.0",
+  "weasyprint>=62.0",
+  "reportlab>=4.0.0",
+  "pypdf>=4.0.0",
+  "XlsxWriter>=3.2.0",
+  "openpyxl>=3.1.0",
+  "pandas>=2.2.0",
+  "Jinja2>=3.1.0",
+]
+# `pip install argus[security]` — Sentinel guardrails. Heavy (transformers +
+# spaCy). Falls back to a regex-only scan when not installed, so the agent
+# loop NEVER crashes when this extra is missing — coverage is just thinner.
+security = [
+  "llm-guard>=0.3.15",
+  "presidio-analyzer>=2.2.0",
+  "presidio-anonymizer>=2.2.0",
+]
+api = [
+  "fastapi>=0.110.0",
+  "uvicorn[standard]>=0.27.0",
+  "python-multipart>=0.0.9",
+  "websockets>=12.0",
+]
+cron = [
+  "apscheduler>=3.10.4",
+  "croniter>=2.0.1",
+  "tzlocal>=5.2",
+]
+vault = [
+  "sqlite-vec>=0.1.6",
+  "sentence-transformers>=3.0.0",
+  "numpy>=1.26.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["argus"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
