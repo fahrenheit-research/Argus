@@ -134,8 +134,13 @@ class GmailConnector(BaseConnector):
         open_auth_url(auth_url)
 
         # ── Step 3: Wait for callback ───────────────────────────────────
-        console.print(Text("\n  Waiting for Google to redirect (up to 120s)…", style=DIM))
-        result = wait_for_callback(timeout=120.0)
+        from argus.connectors.oauth_server import _is_headless, wait_for_callback_manual
+        if _is_headless():
+            console.print(Text("\n  VPS/headless mode detected — paste the callback URL below.", style=DIM))
+            result = wait_for_callback_manual(console)
+        else:
+            console.print(Text("\n  Waiting for Google to redirect (up to 120s)…", style=DIM))
+            result = wait_for_callback(timeout=120.0)
 
         if result.get("error") or not result.get("code"):
             console.print(Text(f"  ✗ Auth failed: {result.get('error', 'no code received')}", style=ERR))

@@ -95,7 +95,11 @@ def chat_cmd(
 @app.command("setup", help="Run the full onboarding wizard (provider + Telegram in one pass).")
 def setup_cmd(
     dry_run: bool = typer.Option(False, "--dry-run", help="Walk the wizard but do not persist to ~/.argus/."),
+    headless: bool = typer.Option(False, "--headless", help="Force headless/VPS mode for OAuth flows (paste callback URL manually)."),
 ) -> None:
+    import os
+    if headless:
+        os.environ["ARGUS_HEADLESS"] = "1"
     from argus.screens.setup import run as setup_run
     setup_run(write=not dry_run)
 
@@ -738,7 +742,11 @@ def connect_cmd(
     status: bool = typer.Option(False, "--status", "-s", help="Show connection status for all connectors."),
     test:   bool = typer.Option(False, "--test",   "-t", help="Test an existing connection."),
     disconnect: bool = typer.Option(False, "--disconnect", "-d", help="Remove stored tokens."),
+    headless: bool = typer.Option(False, "--headless", help="Force headless/VPS mode (paste callback URL manually instead of localhost server)."),
 ) -> None:
+    import os
+    if headless:
+        os.environ["ARGUS_HEADLESS"] = "1"
     from argus.connectors.registry import list_connectors, run_connect_wizard, get_connector
     from argus.theme import console as new_console, GOLD, CYAN, DIM, MAGENTA
     from rich.table import Table

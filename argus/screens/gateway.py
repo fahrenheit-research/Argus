@@ -15,34 +15,68 @@ from argus.screens._common import err_panel, hint, ok_panel, screen_header
 from argus.stub.telegram import TAIL_EVENTS
 from argus.theme import console as new_console
 
-_FAUX_ALLOWED = ["487293841", "902113847"]
-_FAUX_PID = 14823
-_FAUX_UPTIME = "2d 14h 03m"
-_FAUX_LAST_MSG = "4 minutes ago"
-_FAUX_USERNAME = "my_argus_bot"
-
 
 def status() -> None:
     console = new_console()
     screen_header(console, "Telegram gateway")
 
+    from argus import config as _config
+    from argus.platforms.telegram import parse_allow_list
+
+    cfg = _config.load()
+    token = _config.resolve_secret("TELEGRAM_BOT_TOKEN", cfg)
+
+    if not token:
+        hint(console, "No TELEGRAM_BOT_TOKEN configured.")
+        hint(console, "Run:  argus gateway setup")
+        return
+
+    # Check if gateway process is running
+    pid = _read_pid()
+    is_running = pid is not None and _pid_is_running(pid)
+
+    # Validate token to get bot username
+    from argus.validate import validate_telegram_token
+    ok, detail = validate_telegram_token(token)
+    bot_name = detail.split()[0] if ok else "unknown"
+
+    # Get allow-list
+    raw = _config.resolve_secret("TELEGRAM_ALLOWED_USERS", cfg) or ""
+    allowed_ids = parse_allow_list(raw)
+
     body = Text()
-    body.append("✓ ", style="argus.ok")
-    body.append("telegram gateway online", style="argus.fg")
-    body.append(f"   (pid {_FAUX_PID})\n\n", style="argus.dim")
-    body.append("bot:           ", style="argus.dim").append(f"@{_FAUX_USERNAME}", style="argus.cyan").append("\n")
-    body.append("uptime:        ", style="argus.dim").append(_FAUX_UPTIME, style="argus.cyan").append("\n")
-    body.append("allowed users: ", style="argus.dim").append(str(len(_FAUX_ALLOWED)), style="argus.cyan").append("\n")
-    body.append("last message:  ", style="argus.dim").append(_FAUX_LAST_MSG, style="argus.cyan").append("\n")
-    body.append("voice STT:     ", style="argus.dim").append("groq · whisper-large-v3", style="argus.cyan")
+    if is_running:
+        body.append("✓ ", style="argus.ok")
+        body.append("telegram gateway online", style="argus.fg")
+        body.append(f"   (pid {pid})\n\n", style="argus.dim")
+    else:
+        body.append("○ ", style="argus.dim")
+        body.append("telegram gateway offline", style="argus.fg")
+        body.append("\n\n", style="argus.dim")
+
+    body.append("bot:           ", style="argus.dim")
+    body.append(f"{bot_name}" if ok else "token invalid", style="argus.cyan")
+    body.append("\n")
+    body.append("token valid:   ", style="argus.dim")
+    body.append("✓ yes" if ok else "✗ no", style="argus.ok" if ok else "argus.err_text")
+    body.append("\n")
+    body.append("allowed users: ", style="argus.dim")
+    body.append(str(len(allowed_ids)), style="argus.cyan")
+    body.append("\n")
+    body.append("voice STT:     ", style="argus.dim")
+    body.append(f"{cfg.voice.stt_provider} · {cfg.voice.stt_model}", style="argus.cyan")
+
     console.print(Padding(Panel(body, border_style="argus.gold", padding=(1, 2)), (0, 0)))
+
+    if not is_running:
+        hint(console, "Start with:  argus gateway start")
 
 
 def setup_only() -> None:
     """Re-enter just the Telegram half of the wizard."""
     from argus.screens.setup import _botfather_walkthrough  # type: ignore[attr-defined]
     from argus import picker
-    from argus.stub.telegram import get_me
+    from argus.validate import validate_telegram_token
 
     console = new_console()
     screen_header(console, "Telegram setup", subtitle="replace token, change allow-list.")
@@ -60,14 +94,27 @@ def setup_only() -> None:
     if choice == "Walk me through creating a bot":
         _botfather_walkthrough(console)
 
-    token = picker.password("Paste your Telegram bot token:")
-    if not token:
-        return
-    identity = get_me(token)
-    if identity is None:
-        err_panel(console, "That token didn't work — please re-copy it from BotFather.")
-        return
-    ok_panel(console, f"Connected as @{identity.username}")
+    while True:
+        token = picker.password("Paste your Telegram bot token:")
+        if not token:
+            return
+        console.print(Text("  [ Validating with Telegram getMe… ]", style="argus.dim"))
+        ok, detail = validate_telegram_token(token.strip())
+        if ok:
+            ok_panel(console, f"Connected as {detail}")
+            # Persist the token
+            from argus import config as _config
+            cfg = _config.load()
+            env = dict(cfg.env)
+            env["TELEGRAM_BOT_TOKEN"] = token.strip()
+            _config.save_env(env)
+            cfg.gateway.telegram.enabled = True
+            _config.save_config(cfg)
+            ok_panel(console, "Token saved to ~/.argus/.env",
+                     sub="Start the gateway with:  argus gateway start")
+            break
+        err_panel(console, f"That token didn't work: {detail}",
+                  sub="Re-copy from BotFather and try again.")
 
 
 def start(as_service: bool = False) -> None:

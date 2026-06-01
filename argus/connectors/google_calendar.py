@@ -96,8 +96,14 @@ class GoogleCalendarConnector(BaseConnector):
         auth_url = _AUTH_URL + "?" + urllib.parse.urlencode(params)
         console.print(Text("\n  Opening Google Calendar auth in your browser…", style=FG))
         open_auth_url(auth_url)
-        console.print(Text("\n  Waiting for redirect (up to 120s)…", style=DIM))
-        result = wait_for_callback(timeout=120.0)
+
+        from argus.connectors.oauth_server import _is_headless, wait_for_callback_manual
+        if _is_headless():
+            console.print(Text("\n  VPS/headless mode detected — paste the callback URL below.", style=DIM))
+            result = wait_for_callback_manual(console)
+        else:
+            console.print(Text("\n  Waiting for redirect (up to 120s)…", style=DIM))
+            result = wait_for_callback(timeout=120.0)
 
         if not result.get("code"):
             console.print(Text(f"  ✗ {result.get('error', 'no code')}", style=ERR))
